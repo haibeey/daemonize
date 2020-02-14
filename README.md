@@ -1,5 +1,5 @@
 #  Daemonize
-if you want to start in  background, Then you should checkout daemonize  
+if you want to start a process in  background, Then you should checkout daemonize  
 
 ###  Usage  
 daemonize -f python3 app.py  
@@ -17,4 +17,4 @@ daemonize -b godoc -o ch.out -a -http=localhost:6060
 ###  Building  
 go build in repo directory builds the binary
 
-#####  creating services for os specific platform is WIP and contribution for that are highly welcome.
+#####  Contribution for creating services for os specific platform are welcome.
