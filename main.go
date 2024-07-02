@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
@@ -65,7 +66,7 @@ func main() {
 	}
 
 	if *name == "" {
-		name = program
+		*name = filepath.Base(*program)
 	}
 
 	var (
@@ -73,11 +74,13 @@ func main() {
 		err error
 	)
 
-	outFilename := fmt.Sprintf("%s/.daemonize/daemonizeout.in", getHomeDir())
+	outFilename := fmt.Sprintf("%s/.daemonize/%s.in", getHomeDir(), *name)
 	std, err = os.OpenFile(outFilename, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Not able to create output file %s", err.Error())
 	}
+
+	defer std.Close()
 
 	programArgs := strings.Map(reWithSpace, *programArgs)
 	argsList := strings.Split(programArgs, " ")
@@ -85,6 +88,8 @@ func main() {
 	for i := 0; i < len(argsList); i++ {
 		argsList[i] = strings.TrimSpace(argsList[i])
 	}
+
+	argsList = append(argsList, []string{">", outFilename}...)
 
 	cmd := exec.Command(*program, argsList...)
 
@@ -98,7 +103,7 @@ func main() {
 		log.Fatalf("Command woundn't start due : %s", err.Error())
 	}
 
-	fmt.Println(cmd.Process.Pid, "ppppppp")
+	log.Println(cmd.Process.Pid)
 	err = addEntry(cmd.Process.Pid, *name)
 	if err != nil {
 		log.Fatalf("Entry error %s", err.Error())

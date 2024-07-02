@@ -1,5 +1,5 @@
 #  Daemonize
-if you want to start a process in  background, Then you should checkout daemonize  
+if you want to start a process in  background, Then you should checkout daemonize. Works on unix style systems.  
 
 ###  Usage  
 daemonize -program python3 -args app.py -name pythonapp  
