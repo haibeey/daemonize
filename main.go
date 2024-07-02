@@ -15,11 +15,12 @@ import (
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/shirou/gopsutil/v3/process"
 )
 
 var (
 	program     = flag.String("program", "", "Program to start in host OS binary format for instance python")
-	programArgs = flag.String("args", "", "space separated arguement to be pass to the program for instance python filename.py")
+	programArgs = flag.String("args", "", "Space separated arguement to be pass to the program for instance python filename.py")
 	name        = flag.String("name", "", "Name of the program")
 	show        = flag.Bool("show", false, "Show list of process")
 	kill        = flag.Bool("kill", false, "Kill process by name")
@@ -227,6 +228,19 @@ func addEntry(pid int, programName string) error {
 	return err
 }
 
+func formatBytes(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
 func showEntry() {
 
 	entryList, err := getDaemonizeEntryList()
@@ -236,12 +250,37 @@ func showEntry() {
 
 	data := [][]string{}
 
-	for _, entry := range entryList {
+	for index, entry := range entryList {
 		data = append(data, []string{fmt.Sprintf("%d", entry.Pid), entry.Name})
+		proc, err := process.NewProcess(int32(entry.Pid))
+		if err != nil {
+			log.Fatalf("Error getting process: %s", err.Error())
+		}
+
+		cpuPercent, err := proc.CPUPercent()
+		if err != nil {
+			data[index] = append(data[index], "unknown")
+		} else {
+			data[index] = append(data[index], fmt.Sprintf("%.1f%s", cpuPercent, "%"))
+		}
+
+		memInfo, err := proc.MemoryInfo()
+		if err != nil {
+			data[index] = append(data[index], "unknown")
+		} else {
+			data[index] = append(data[index], formatBytes(memInfo.RSS))
+		}
+
+		ioCounters, err := proc.IOCounters()
+		if err != nil {
+			data[index] = append(data[index], "unknown")
+		} else {
+			data[index] = append(data[index], formatBytes(ioCounters.ReadBytes))
+		}
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"PID", "Name"})
+	table.SetHeader([]string{"PID", "Name", "cpu", "memory", "disk"})
 
 	for _, v := range data {
 		table.Append(v)
