@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
@@ -20,10 +21,10 @@ import (
 
 var (
 	program     = flag.String("program", "", "Program to start in host OS binary format for instance python")
-	programArgs = flag.String("args", "", "Space separated arguement to be pass to the program for instance python filename.py")
+	programArgs = flag.String("args", "", "Space separated argument to be pass to the program for instance python filename.py")
 	name        = flag.String("name", "", "Name of the program")
-	show        = flag.Bool("show", false, "Show list of process")
-	kill        = flag.Bool("kill", false, "Kill process by name")
+	show        = flag.Bool("show", false, "Show the list of all processes")
+	kill        = flag.Bool("kill", false, "Kill process by name or pid")
 )
 
 type Entry struct {
@@ -47,8 +48,7 @@ func main() {
 
 	if *kill {
 		if len(*name) <= 0 {
-			fmt.Println(len(*name), *name)
-			log.Fatal("name must be passed")
+			log.Fatal("name or pid must be passed")
 		}
 
 		err := killEntry(*name)
@@ -254,7 +254,12 @@ func showEntry() {
 		data = append(data, []string{fmt.Sprintf("%d", entry.Pid), entry.Name})
 		proc, err := process.NewProcess(int32(entry.Pid))
 		if err != nil {
-			log.Fatalf("Error getting process: %s", err.Error())
+			if errors.Is(err, process.ErrorProcessNotRunning) {
+				killEntry(entry.Name)
+				continue
+			}
+
+			log.Fatalf("Error getting process with name(%s) and PID(%d). Error encountered %s", entry.Name, entry.Pid, err.Error())
 		}
 
 		cpuPercent, err := proc.CPUPercent()
@@ -298,7 +303,7 @@ func killEntry(name string) error {
 
 	el := EntryList{}
 	for _, entry := range entryList {
-		if entry.Name == name {
+		if entry.Name == name || strconv.Itoa(entry.Pid) == name {
 			proc, err := os.FindProcess(entry.Pid)
 			if err != nil {
 				log.Println(err)
