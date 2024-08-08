@@ -24,6 +24,7 @@ go build in repo directory builds the binary
 ## Download
 
 ```
+wget -qO- https://raw.githubusercontent.com/haibeey/daemonize/master/install/install.sh | bash
 ```
 
 #####  Contribution for creating services for os specific platform are welcome.
