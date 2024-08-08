@@ -21,5 +21,10 @@ go build in repo directory builds the binary
 +-------+------+-------+----------+---------+
 ```
 
+## Download
+
+```
+```
+
 #####  Contribution for creating services for os specific platform are welcome.
   
