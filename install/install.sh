@@ -7,9 +7,9 @@ wget -O daemonize.gz https://github.com/haibeey/daemonize/releases/download/init
 gunzip -dc daemonize.gz > daemonize && chmod +x daemonize
 
 if [ "$OS_TYPE" == "linux" ]; then
-    mv daemonize /usr/bin/
+    sudo mv daemonize /usr/bin/
 elif [ "$OS_TYPE" == "darwin" ]; then
-    mv daemonize /usr/local/bin/
+    sudo mv daemonize /usr/local/bin/
 else
     echo "un supported  os: $OS_TYPE"
 fi
