@@ -90,7 +90,6 @@ func main() {
 		argsList[i] = strings.TrimSpace(argsList[i])
 	}
 
-	argsList = append(argsList, []string{">", outFilename}...)
 
 	cmd := exec.Command(*program, argsList...)
 
