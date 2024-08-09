@@ -6,12 +6,19 @@ wget -O daemonize.gz https://github.com/haibeey/daemonize/releases/download/init
 
 gunzip -dc daemonize.gz > daemonize && chmod +x daemonize
 
-if [ "$OS_TYPE" == "linux" ]; then
-    sudo mv daemonize /usr/bin/
-elif [ "$OS_TYPE" == "darwin" ]; then
-    sudo mv daemonize /usr/local/bin/
+# Check if sudo is installed
+if command -v sudo > /dev/null 2>&1; then
+    USE_SUDO="sudo"
 else
-    echo "un supported  os: $OS_TYPE"
+    USE_SUDO=""
+fi
+
+if [ "$OS_TYPE" == "linux" ]; then
+    $USE_SUDO mv daemonize /usr/bin/
+elif [ "$OS_TYPE" == "darwin" ]; then
+    $USE_SUDO mv daemonize /usr/local/bin/
+else
+    echo "Unsupported OS: $OS_TYPE"
 fi
 
 rm daemonize.gz
