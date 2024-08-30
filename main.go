@@ -1,22 +1,13 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
-
-	"github.com/olekukonko/tablewriter"
-	"github.com/shirou/gopsutil/v3/process"
 )
 
 var (
@@ -26,6 +17,94 @@ var (
 	show        = flag.Bool("show", false, "Show the list of all processes")
 	kill        = flag.Bool("kill", false, "Kill process by name or pid")
 )
+
+type Config struct {
+	Program     string
+	Args        []string
+	Name        string
+	Show        bool
+	Kill        bool
+	stdFileName string
+	executor    Executor
+}
+
+type Executor interface {
+	Command(program, stdFileName string, args ...string) int
+}
+
+func NewConfig(program, name string, args []string) *Config {
+	return &Config{
+		Program:  program,
+		Name:     name,
+		Args:     args,
+		executor: SysExecutor{},
+	}
+}
+
+func (c *Config) Run() {
+	if c.Show {
+		showEntry()
+		os.Exit(0)
+	}
+
+	if c.Kill {
+		if len(c.Name) <= 0 {
+			log.Fatal("name or pid must be passed")
+		}
+
+		err := killEntry(c.Name)
+		if err != nil {
+			log.Fatalf("Error killing program %s", err.Error())
+		}
+
+		os.Exit(0)
+	}
+
+	if c.Program == "" {
+		log.Fatal("You must provide a program to run in this mode")
+	}
+	if len(c.Args) <= 0 {
+		fmt.Fprintln(os.Stderr, "Runing program without arguments")
+	}
+
+	if c.Name == "" {
+		c.Name = filepath.Base(c.Program)
+	}
+
+	pid := c.executor.Command(c.Program, c.stdFileName, c.Args...)
+	err := addEntry(pid, c.Name)
+	if err != nil {
+		log.Fatalf("Entry error %s", err.Error())
+		os.Exit(0)
+	}
+	os.Exit(0)
+}
+
+type SysExecutor struct{}
+
+func (s SysExecutor) Command(program, stdFileName string, args ...string) int {
+
+	cmd := exec.Command(program, args...)
+	std, err := os.OpenFile(stdFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
+	if err != nil {
+		log.Fatalf("Not able to create output file %s", err.Error())
+	}
+
+	if std != nil {
+		cmd.Stderr = std
+		cmd.Stdout = std
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		log.Fatalf("Command woundn't start due : %s", err.Error())
+	}
+
+	defer std.Close()
+
+	return cmd.Process.Pid
+
+}
 
 type Entry struct {
 	Pid  int
@@ -41,48 +120,6 @@ func main() {
 		log.Fatalf("Couldn't create dir due to %s", err.Error())
 	}
 
-	if *show {
-		showEntry()
-		os.Exit(0)
-	}
-
-	if *kill {
-		if len(*name) <= 0 {
-			log.Fatal("name or pid must be passed")
-		}
-
-		err := killEntry(*name)
-		if err != nil {
-			log.Fatalf("Error killing program %s", err.Error())
-		}
-
-		os.Exit(0)
-	}
-
-	if *program == "" {
-		log.Fatal("You must provide a program to run in this mode")
-	}
-	if *programArgs == "" {
-		fmt.Fprintln(os.Stderr, "Runing program without arguments")
-	}
-
-	if *name == "" {
-		*name = filepath.Base(*program)
-	}
-
-	var (
-		std *os.File
-		err error
-	)
-
-	outFilename := fmt.Sprintf("%s/.daemonize/%s.in", getHomeDir(), *name)
-	std, err = os.OpenFile(outFilename, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0777)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Not able to create output file %s", err.Error())
-	}
-
-	defer std.Close()
-
 	programArgs := strings.Map(reWithSpace, *programArgs)
 	argsList := strings.Split(programArgs, " ")
 
@@ -90,261 +127,12 @@ func main() {
 		argsList[i] = strings.TrimSpace(argsList[i])
 	}
 
+	config := NewConfig(*program, *name, argsList)
+	config.Show = *show
+	config.Kill = *kill
 
-	cmd := exec.Command(*program, argsList...)
+	config.stdFileName = fmt.Sprintf("%s/.daemonize/%s.in", getHomeDir(), config.Name)
 
-	if std != nil {
-		cmd.Stderr = std
-		cmd.Stdout = std
-	}
+	config.Run()
 
-	err = cmd.Start()
-	if err != nil {
-		log.Fatalf("Command woundn't start due : %s", err.Error())
-	}
-
-	log.Println(cmd.Process.Pid)
-	err = addEntry(cmd.Process.Pid, *name)
-	if err != nil {
-		log.Fatalf("Entry error %s", err.Error())
-		os.Exit(0)
-	}
-	os.Exit(0)
-
-}
-
-// reWithSpace subtitutes all white space characters to space
-func reWithSpace(r rune) rune {
-	switch {
-	case r == '\t':
-		return ' '
-	case r == '\n':
-		return ' '
-	case r == '\r':
-		return ' '
-	}
-
-	return r
-}
-
-func getHomeDir() string {
-	usr, err := user.Current()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if len(usr.HomeDir) <= 0 {
-		log.Fatal(errors.New("current user have no home directory"))
-	}
-
-	return usr.HomeDir
-
-}
-
-func createDaemonizeDir() error {
-	directoryname := fmt.Sprintf("%s/.daemonize", getHomeDir())
-	if _, err := os.Stat(directoryname); os.IsNotExist(err) {
-		err := os.Mkdir(directoryname, 0755) //create a directory and give it required permissions
-		if err != nil {
-			return err
-		}
-
-	} else {
-		return nil
-	}
-
-	return nil
-
-}
-
-func getDaemonizeEntryList() (EntryList, error) {
-	el := EntryList{}
-	daemonizeFile := fmt.Sprintf("%s/.daemonize/daemonizeentry.in", getHomeDir())
-
-	fileInfo, err := os.Stat(daemonizeFile)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			_, err := os.Create(daemonizeFile)
-			return el, err
-		} else {
-			return el, err
-		}
-	}
-
-	daemonize, err := os.OpenFile(daemonizeFile, os.O_RDWR, 0755)
-	if err != nil {
-		return el, err
-	}
-
-	defer daemonize.Close()
-
-	if fileInfo.Size() <= 0 {
-		return el, nil
-	}
-
-	var buf bytes.Buffer
-
-	_, err = io.Copy(&buf, daemonize)
-	if err != nil {
-		return el, err
-	}
-
-	enc := gob.NewDecoder(&buf)
-	if err := enc.Decode(&el); err != nil {
-		return el, err
-	}
-
-	return el, err
-
-}
-
-func addEntry(pid int, programName string) error {
-
-	e := Entry{pid, programName}
-
-	entryList, err := getDaemonizeEntryList()
-	if err != nil {
-		return err
-	}
-
-	entryList = append(entryList, e)
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-
-	if err := enc.Encode(entryList); err != nil {
-		return err
-	}
-
-	daemonizeFile := fmt.Sprintf("%s/.daemonize/daemonizeentry.in", getHomeDir())
-	daemonize, err := os.OpenFile(daemonizeFile, os.O_RDWR, 0755)
-	if err != nil {
-		return err
-	}
-	defer daemonize.Close()
-
-	_, err = daemonize.Write(buf.Bytes())
-	return err
-}
-
-func formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func showEntry() {
-
-	entryList, err := getDaemonizeEntryList()
-	if err != nil {
-		log.Fatalf("Error showing entry %s", err.Error())
-	}
-
-	data := [][]string{}
-
-	for index, entry := range entryList {
-		data = append(data, []string{fmt.Sprintf("%d", entry.Pid), entry.Name})
-		proc, err := process.NewProcess(int32(entry.Pid))
-		if err != nil {
-			if errors.Is(err, process.ErrorProcessNotRunning) {
-				killEntry(entry.Name)
-				continue
-			}
-
-			log.Fatalf("Error getting process with name(%s) and PID(%d). Error encountered %s", entry.Name, entry.Pid, err.Error())
-		}
-
-		cpuPercent, err := proc.CPUPercent()
-		if err != nil {
-			data[index] = append(data[index], "unknown")
-		} else {
-			data[index] = append(data[index], fmt.Sprintf("%.1f%s", cpuPercent, "%"))
-		}
-
-		memInfo, err := proc.MemoryInfo()
-		if err != nil {
-			data[index] = append(data[index], "unknown")
-		} else {
-			data[index] = append(data[index], formatBytes(memInfo.RSS))
-		}
-
-		ioCounters, err := proc.IOCounters()
-		if err != nil {
-			data[index] = append(data[index], "unknown")
-		} else {
-			data[index] = append(data[index], formatBytes(ioCounters.ReadBytes))
-		}
-	}
-
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"PID", "Name", "cpu", "memory", "disk"})
-
-	for _, v := range data {
-		table.Append(v)
-	}
-	table.Render()
-
-}
-
-func killEntry(name string) error {
-
-	entryList, err := getDaemonizeEntryList()
-	if err != nil {
-		log.Fatalf("Error getting entry %s", err.Error())
-	}
-
-	el := EntryList{}
-	for _, entry := range entryList {
-		if entry.Name == name || strconv.Itoa(entry.Pid) == name {
-			proc, err := os.FindProcess(entry.Pid)
-			if err != nil {
-				log.Println(err)
-			}
-			proc.Kill()
-
-		} else {
-			el = append(el, entry)
-		}
-	}
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-
-	if err := enc.Encode(el); err != nil {
-		return err
-	}
-
-	daemonizeFile := fmt.Sprintf("%s/.daemonize/daemonizeentry.in", getHomeDir())
-	stat, err := os.Stat(daemonizeFile)
-	if err != nil {
-		return err
-	}
-
-	daemonize, err := os.OpenFile(daemonizeFile, os.O_RDWR, 0755)
-	if err != nil {
-		return err
-	}
-
-	err = daemonize.Truncate(stat.Size())
-	if err != nil {
-		return err
-	}
-
-	daemonize.Close()
-
-	daemonize, err = os.OpenFile(daemonizeFile, os.O_RDWR, 0755)
-	if err != nil {
-		return err
-	}
-	defer daemonize.Close()
-
-	_, err = daemonize.Write(buf.Bytes())
-	return err
 }
